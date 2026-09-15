@@ -1447,6 +1447,13 @@ fn engine_config_advertises_vllm_generate_capability() {
             .get("vllm_inference_v1_generate"),
         Some(&json!(true))
     );
+    assert_eq!(
+        model
+            .engine_config()
+            .runtime_data
+            .get(dynamo_llm::lora::LORA_REQUIRES_REGISTRATION),
+        Some(&json!(true))
+    );
 }
 
 #[test]
@@ -2773,8 +2780,10 @@ async fn restart_republishes_resident_adapters_and_shutdown_unpublishes() {
 }
 
 #[tokio::test]
-async fn invalid_restart_inventory_keeps_base_serving() {
-    for conflicting_name in ["Math-R8", "model-source"] {
+async fn restart_inventory_keeps_base_serving_and_allows_exact_unload() {
+    for (conflicting_name, initial_siblings) in
+        [("Math-R8", 0), ("model-source", 0), ("math-r8 ", 2)]
+    {
         let service = FakeVllm::default();
         for (id, name) in [(1, "math-r8"), (2, conflicting_name)] {
             service.loras.lock().await.push(pb::LoraAdapter {
@@ -2792,10 +2801,11 @@ async fn invalid_restart_inventory_keeps_base_serving() {
                 .unwrap()
                 .contains(&"load_lora".to_string())
         );
-        assert!(lora_siblings(&endpoint).await.is_empty());
+        assert_eq!(lora_siblings(&endpoint).await.len(), initial_siblings);
         assert_eq!(collect(&engine, request()).await.len(), 1);
         assert_eq!(unload(&engine, conflicting_name).await["status"], "success");
         assert_eq!(server.service.loras.lock().await.len(), 1);
+        assert_eq!(server.service.loras.lock().await[0].lora_name, "math-r8");
         assert_eq!(
             engine
                 .engine_update("list_loras".into(), json!({}))
