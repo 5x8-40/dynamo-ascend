@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use tonic_v14 as tonic;
+
 use std::collections::HashSet;
 
 use async_trait::async_trait;
@@ -101,6 +103,7 @@ impl VllmSidecarEngine {
 
         let endpoint = args.sidecar.grpc_endpoint;
         let enable_rl = args.sidecar.common.enable_rl;
+        let vllm_rl_world_size = args.vllm_rl_world_size.map(|world_size| world_size.get());
         let vllm_http_url = args
             .vllm_http_endpoint
             .map(|endpoint| {
@@ -126,7 +129,7 @@ impl VllmSidecarEngine {
             )));
         }
         let rl_metadata = enable_rl
-            .then(|| model.rl_worker_metadata(vllm_http_url))
+            .then(|| model.rl_worker_metadata(vllm_http_url, vllm_rl_world_size))
             .transpose()?;
         let engine = Self::new(endpoint, model.clone(), mode, transport);
         let config = WorkerConfig {
@@ -360,7 +363,7 @@ impl VllmSidecarEngine {
         let source_path_arg = source_path.to_string_lossy().to_string();
 
         let adapter = match client
-            .load_lora(request.name.clone(), source_path_arg.clone())
+            .load_lora(request.name.clone(), source_path_arg)
             .await
         {
             Ok(response) => self.expect_adapter(response.adapter, &request.name)?,
@@ -398,7 +401,9 @@ impl VllmSidecarEngine {
                         return Err(client::protocol_error(format!(
                             "LoRA adapter `{}` is loaded from `{}` but this load requested `{}`; \
                              vLLM and Dynamo disagree about adapter state",
-                            request.name, observed.source_path, source_path_arg
+                            request.name,
+                            observed.source_path,
+                            source_path.display()
                         )));
                     }
                     None => return Err(error.into_dynamo()),
