@@ -9,10 +9,12 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use super::config::RouterQueuePolicy;
-use super::request_classifier_config::RawRequestClassifierConfig;
-pub use super::request_classifier_config::RequestClassifierConfig;
-use super::worker_selection_config::RawWorkerSelectionConfig;
-pub use super::worker_selection_config::{WorkerSelectionConfig, WorkerSelectionInstance};
+use crate::plugins::request_classifier::RawRequestClassifierConfig;
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use crate::plugins::request_classifier::RequestClassifierConfig;
+use crate::plugins::worker_selection::RawWorkerSelectionConfig;
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use crate::plugins::worker_selection::{WorkerSelectionConfig, WorkerSelectionInstance};
 
 const SYNTHETIC_POLICY_CLASS: &str = "default";
 
@@ -622,7 +624,7 @@ fn resolve_uncached_isl_buckets(
     })
 }
 
-pub(super) fn validate_identifier(
+pub(crate) fn validate_identifier(
     name: &str,
     kind: &str,
     location: &str,

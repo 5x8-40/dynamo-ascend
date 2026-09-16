@@ -13,11 +13,7 @@ pub mod prefill_load;
 pub mod queue;
 mod queue_admission;
 pub mod request_classifier;
-mod request_classifier_config;
-pub(crate) mod request_classifier_registry;
 pub mod selector;
-
-mod worker_selection_config;
 
 mod types;
 pub use filter::*;
@@ -30,8 +26,7 @@ pub use overlap_refresh::{
     NoopOverlapScoresRefresh, OverlapScoresRefresh, RefreshedOverlap, TieredOverlapRefresher,
 };
 pub use policy_config::{
-    PolicyClassConfig, PolicyProfile, RequestClassifierConfig, RouterPolicyConfig,
-    RouterPolicyConfigError, WorkerSelectionConfig, WorkerSelectionInstance,
+    PolicyClassConfig, PolicyProfile, RouterPolicyConfig, RouterPolicyConfigError,
 };
 pub use policy_queue::{
     PolicyQueue, PolicyQueueEntry, QueueLimitKind, QueueRejection, QueueSnapshot,
@@ -41,12 +36,13 @@ pub use prefill_load::{
     prefill_load_hint_from_effective_tokens,
 };
 pub use queue_admission::{RequestProgress, RequestProgressUpdater, WorkerPlacement};
-pub use request_classifier::{
+pub use request_classifier::RequestLifecycle;
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use crate::plugins::request_classifier::{
     AbortCause, ClassifierError, ClassifyEvent, ClassifyFuture, ClassifyRequest, RequestClassifier,
-    RequestLifecycle,
+    RequestClassifierConfig, RequestClassifierFactory, RequestClassifierParameters,
+    RequestClassifierProvider, RequestClassifierProviderError, RequestClassifierRegistryError,
 };
-pub use request_classifier_registry::{
-    RequestClassifierFactory, RequestClassifierParameters, RequestClassifierProvider,
-    RequestClassifierProviderError, RequestClassifierRegistryError,
-};
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use crate::plugins::worker_selection::{WorkerSelectionConfig, WorkerSelectionInstance};
 pub use types::*;

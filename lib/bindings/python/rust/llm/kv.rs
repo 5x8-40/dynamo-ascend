@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "select-service")]
+use dynamo_kv_router::plugins::RouterPluginRegistry;
 use pythonize::{depythonize, pythonize};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -36,8 +38,7 @@ use dynamo_kv_router::services::selection::{
     self, OverlapScoresRequest, PotentialLoadsRequest, ReservationRequest, SelectAndReserveRequest,
     SelectRequest, SelectionCacheConfig as RsSelectionCacheConfig, SelectionError,
     SelectionService as RustSelectionService, SelectionServiceBuilder, SelectionServiceConfig,
-    WorkerPatchRequest, WorkerRequest, WorkerSelectionPolicyRegistry,
-    warn_for_unserved_worker_selection_policies,
+    WorkerPatchRequest, WorkerRequest, warn_for_unserved_worker_selection_policies,
 };
 #[cfg(feature = "slot-tracker")]
 use dynamo_kv_router::services::slot_tracker::{self, SlotTrackerConfig};
@@ -520,7 +521,7 @@ where
 #[cfg(feature = "select-service")]
 pub(crate) fn run_select_service_cli<I, T>(
     args: I,
-    policy_registry: WorkerSelectionPolicyRegistry,
+    policy_registry: RouterPluginRegistry,
 ) -> anyhow::Result<()>
 where
     I: IntoIterator<Item = T>,

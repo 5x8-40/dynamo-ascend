@@ -9,17 +9,16 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 
-use crate::WorkerSelectionPolicyFactory;
+use super::request_classifier::RequestClassifierRegistry;
+use super::request_classifier::{
+    RequestClassifierFactory, RequestClassifierProvider, RequestClassifierRegistryError,
+};
+use super::worker_selection::{WorkerSelectionPolicy, WorkerSelectionPolicyFactory};
 use crate::WorkerType;
 use crate::config::KvRouterConfig;
 use crate::scheduling::config::WorkerSelectionPolicySelections;
 pub use crate::scheduling::config::{
     DYN_ROUTER_DECODE_POLICY, DYN_ROUTER_PREFILL_POLICY, DYN_ROUTER_WORKER_SELECTION_POLICY,
-};
-use crate::scheduling::request_classifier_registry::RequestClassifierRegistry;
-use crate::scheduling::selector::WorkerSelectionPolicy;
-use crate::scheduling::{
-    RequestClassifierFactory, RequestClassifierProvider, RequestClassifierRegistryError,
 };
 
 /// Parses one policy instance's YAML parameters and creates its partition factory.
@@ -73,6 +72,7 @@ pub struct RouterPluginRegistry {
 }
 
 /// Existing catalogs can retain their worker-selection registration signature.
+// TODO(v1.7): Remove this compatibility alias; use RouterPluginRegistry.
 pub type WorkerSelectionPolicyRegistry = RouterPluginRegistry;
 
 /// An error from policy registration or startup resolution.
@@ -116,7 +116,18 @@ impl RouterPluginRegistry {
         name: impl Into<String>,
         provider: WorkerSelectionPolicyProvider,
     ) -> Result<(), WorkerSelectionPolicyRegistryError> {
-        self.register(name, provider)
+        let name = name.into();
+        if name.is_empty() {
+            return Err(WorkerSelectionPolicyRegistryError::EmptyName);
+        }
+        if name == "default" {
+            return Err(WorkerSelectionPolicyRegistryError::ReservedDefault);
+        }
+        if self.providers.contains_key(&name) {
+            return Err(WorkerSelectionPolicyRegistryError::Duplicate { name });
+        }
+        self.providers.insert(name, provider);
+        Ok(())
     }
 
     /// Register a request-classifier type through the same catalog entry point as worker selection.
@@ -141,24 +152,14 @@ impl RouterPluginRegistry {
         self.providers.is_empty() && self.request_classifiers.is_empty()
     }
 
-    /// Register a policy type supplied by a linked policy crate.
+    /// Compatibility entry point for worker-only catalogs.
+    // TODO(v1.7): Remove this compatibility method; use register_worker_selection.
     pub fn register(
         &mut self,
         name: impl Into<String>,
         provider: WorkerSelectionPolicyProvider,
     ) -> Result<(), WorkerSelectionPolicyRegistryError> {
-        let name = name.into();
-        if name.is_empty() {
-            return Err(WorkerSelectionPolicyRegistryError::EmptyName);
-        }
-        if name == "default" {
-            return Err(WorkerSelectionPolicyRegistryError::ReservedDefault);
-        }
-        if self.providers.contains_key(&name) {
-            return Err(WorkerSelectionPolicyRegistryError::Duplicate { name });
-        }
-        self.providers.insert(name, provider);
-        Ok(())
+        self.register_worker_selection(name, provider)
     }
 
     /// Resolve the configured policy instances once at process startup.
@@ -401,7 +402,7 @@ worker_selection:
     #[test]
     fn classifier_only_catalog_resolves_through_common_bundle() {
         struct PassThrough;
-        impl crate::scheduling::RequestClassifier for PassThrough {}
+        impl super::super::request_classifier::RequestClassifier for PassThrough {}
 
         let provider_calls = Arc::new(AtomicUsize::new(0));
         let mut registry = RouterPluginRegistry::default();

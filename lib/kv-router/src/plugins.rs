@@ -1,9 +1,17 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Registration and startup resolution of statically linked router plugins.
+//! Public contracts, configuration, and registration for statically linked router plugins.
+//!
+//! Plugin authors implement [`worker_selection`] or [`request_classifier`] and register their
+//! providers with [`RouterPluginRegistry`]. Signal accessors and callback signatures are unchanged.
+//! Scheduling owns execution, eligibility, lifecycle synchronization, and capacity accounting.
+//!
+//! Legacy imports remain compatibility re-exports until v1.7; new plugins should use this module.
 
 mod registry;
+pub mod request_classifier;
+pub mod worker_selection;
 
 pub use registry::{
     DYN_ROUTER_DECODE_POLICY, DYN_ROUTER_PREFILL_POLICY, DYN_ROUTER_WORKER_SELECTION_POLICY,
@@ -12,8 +20,8 @@ pub use registry::{
     WorkerSelectionPolicyRegistryError,
 };
 
-use crate::WorkerSelectionPolicyFactory;
-use crate::scheduling::{RequestClassifierFactory, RequestClassifierRegistryError};
+use request_classifier::{RequestClassifierFactory, RequestClassifierRegistryError};
+use worker_selection::WorkerSelectionPolicyFactory;
 
 /// Configured factories shared across router construction, with fresh instances per router.
 #[derive(Clone, Default)]

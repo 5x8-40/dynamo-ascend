@@ -24,7 +24,7 @@ use crate::{
 };
 use dynamo_kv_router::{
     KvRouterConfig, RoutingPartitionRef, WorkerSelectionPolicy, WorkerType, plugins::RouterPlugins,
-    scheduling::RequestClassifierFactory, selector::WorkerSelector,
+    plugins::request_classifier::RequestClassifierFactory, selector::WorkerSelector,
 };
 use dynamo_runtime::DistributedRuntime;
 use dynamo_runtime::metrics::MetricsHierarchy;
@@ -61,6 +61,7 @@ impl HttpFrontend {
     /// request. Workers must advertise an explicit typed role; legacy untyped cards are rejected
     /// because decode and aggregated workers cannot be distinguished. Dynamo continues to own
     /// discovery, scheduling, validation, and accounting.
+    // TODO(v1.7): Remove this compatibility setter; use plugins with RouterPlugins::with_worker_selection.
     pub fn worker_selection_policy_factory<F>(mut self, factory: F) -> Self
     where
         F: for<'a> Fn(

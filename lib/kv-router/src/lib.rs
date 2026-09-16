@@ -6,8 +6,6 @@
 //! This crate provides the core radix tree implementation and protocols for
 //! efficient KV cache lookup and routing in distributed LLM inference systems.
 
-use std::sync::Arc;
-
 mod active_set;
 pub(crate) mod cleanup;
 pub mod conditional_disagg;
@@ -76,17 +74,15 @@ pub use scheduling::{
     KvSchedulerError, PotentialLoad, SchedulingRequest, SchedulingResponse, SessionContext,
     WorkerSelectionInputTrigger, WorkerSelectionPolicyError,
 };
-pub use selector::{
-    DefaultWorkerSelector, ScoredWorkerCandidate, WorkerCacheInput, WorkerCandidate, WorkerFilter,
-    WorkerInputView, WorkerInputs, WorkerLoadInput, WorkerPicker, WorkerScorer,
-    WorkerSelectionContext, WorkerSelectionInput, WorkerSelectionPolicy, WorkerSelector,
+pub use selector::{DefaultWorkerSelector, WorkerSelectionInput, WorkerSelector};
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use plugins::worker_selection::{
+    ScoredWorkerCandidate, WorkerCacheInput, WorkerCandidate, WorkerFilter, WorkerInputView,
+    WorkerInputs, WorkerLoadInput, WorkerPicker, WorkerScorer, WorkerSelectionContext,
+    WorkerSelectionPolicy,
 };
 pub use tracking_hash::{TrackingHashAlgorithm, TrackingHashContext, TrackingHashScope};
 pub use worker_type::WorkerType;
 
-/// Factory that creates one worker-selection policy per routing partition.
-pub type WorkerSelectionPolicyFactory = Arc<
-    dyn for<'a> Fn(&KvRouterConfig, WorkerType, RoutingPartitionRef<'a>) -> WorkerSelectionPolicy
-        + Send
-        + Sync,
->;
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use plugins::worker_selection::WorkerSelectionPolicyFactory;

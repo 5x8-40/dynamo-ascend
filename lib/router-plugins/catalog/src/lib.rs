@@ -3,9 +3,7 @@
 
 //! The empty catalog used when a custom image does not replace Dynamo's catalog slot.
 
-use dynamo_kv_router::services::selection::{
-    WorkerSelectionPolicyRegistry, WorkerSelectionPolicyRegistryError,
-};
+use dynamo_kv_router::plugins::{RouterPluginRegistry, WorkerSelectionPolicyRegistryError};
 
 /// Register policies linked into this image.
 ///
@@ -14,12 +12,12 @@ use dynamo_kv_router::services::selection::{
 ///
 /// The same registry also accepts request classifiers through `register_request_classifier`.
 /// A catalog that supplies both plugin types can return `Result<(), Box<dyn std::error::Error>>`
-/// and use `RouterPluginRegistry` (the existing registry name remains an alias).
+/// while worker-only catalogs can return `WorkerSelectionPolicyRegistryError`.
 ///
 /// The policies Dynamo ships are registered separately from `dynamo-custom-policy-builtin`, so
 /// replacing this crate adds policies alongside them rather than displacing them.
 pub fn register(
-    _registry: &mut WorkerSelectionPolicyRegistry,
+    _registry: &mut RouterPluginRegistry,
 ) -> Result<(), WorkerSelectionPolicyRegistryError> {
     Ok(())
 }

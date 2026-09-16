@@ -19,9 +19,7 @@ use super::prefill_load::PrefillLoadEstimator;
 use super::queue::{
     ClassQueueStats, SchedulerBookingCleanup, SchedulerBookingDescriptor, SchedulerQueue,
 };
-use super::request_classifier::{
-    ClassifyRequest, RequestClassifier, RequestClassifierRuntime, RequestLifecycle,
-};
+use super::request_classifier::{RequestClassifierRuntime, RequestLifecycle};
 use super::selector::{DefaultWorkerSelector, WorkerSelector};
 use super::types::{
     AdmissionAttempt, AdmittedSchedulingResponse, AdvisorySchedulingResponse, AttemptId,
@@ -29,6 +27,7 @@ use super::types::{
     ScheduleMode, ScheduleRequest, SchedulingRequest, SchedulingResponse, TierOverlapBlocks,
     WorkerAvailabilityProvider,
 };
+use crate::plugins::request_classifier::{ClassifyRequest, RequestClassifier};
 use crate::protocols::RoutingConstraints;
 use crate::protocols::{LocalBlockHash, WorkerConfigLike, WorkerId, WorkerWithDpRank};
 use crate::sequences::topology::WorkerDpRange;

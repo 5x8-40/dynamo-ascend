@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 
-use super::policy_config::{RouterPolicyConfigError, validate_identifier};
+use crate::scheduling::policy_config::{RouterPolicyConfigError, validate_identifier};
 
 /// Startup selection and plugin-owned parameters for one request-classifier type.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +28,7 @@ impl RequestClassifierConfig {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RawRequestClassifierConfig {
+pub(crate) struct RawRequestClassifierConfig {
     #[serde(rename = "type")]
     classifier_type: String,
     #[serde(default = "empty_parameters")]
@@ -36,7 +36,7 @@ pub(super) struct RawRequestClassifierConfig {
 }
 
 impl RawRequestClassifierConfig {
-    pub(super) fn resolve(self) -> Result<RequestClassifierConfig, RouterPolicyConfigError> {
+    pub(crate) fn resolve(self) -> Result<RequestClassifierConfig, RouterPolicyConfigError> {
         validate_identifier(
             &self.classifier_type,
             "classifier type",

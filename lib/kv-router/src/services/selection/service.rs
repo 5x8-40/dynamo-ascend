@@ -22,7 +22,7 @@ use super::types::{
     SelectResponse, WorkerCatalogRecord, WorkerPatchRequest, WorkerRequest,
 };
 use crate::WorkerType;
-use crate::plugins::WorkerSelectionPolicyRegistry;
+use crate::plugins::RouterPluginRegistry;
 
 pub struct SelectionServiceBuilder {
     kv_router_config: KvRouterConfig,
@@ -32,7 +32,7 @@ pub struct SelectionServiceBuilder {
     replica_sync_peers: Vec<String>,
     selection_cache: SelectionCacheConfig,
     worker_type: WorkerType,
-    worker_selection_policy_registry: WorkerSelectionPolicyRegistry,
+    worker_selection_policy_registry: RouterPluginRegistry,
 }
 
 /// Warn when a host does not construct workers for explicitly configured policy roles.
@@ -59,7 +59,7 @@ impl SelectionServiceBuilder {
     pub fn new(
         kv_router_config: KvRouterConfig,
         worker_type: WorkerType,
-        worker_selection_policy_registry: WorkerSelectionPolicyRegistry,
+        worker_selection_policy_registry: RouterPluginRegistry,
     ) -> Self {
         Self {
             kv_router_config,
@@ -177,7 +177,7 @@ impl SelectionServiceConfig {
     pub fn service_builder(
         &self,
         worker_type: WorkerType,
-        worker_selection_policy_registry: WorkerSelectionPolicyRegistry,
+        worker_selection_policy_registry: RouterPluginRegistry,
     ) -> SelectionServiceBuilder {
         let mut builder = SelectionServiceBuilder::new(
             self.kv_router_config.clone(),
@@ -465,7 +465,7 @@ mod tests {
         let result = SelectionServiceBuilder::new(
             config,
             WorkerType::Aggregated,
-            WorkerSelectionPolicyRegistry::default(),
+            RouterPluginRegistry::default(),
         )
         .build()
         .await;
@@ -502,7 +502,7 @@ worker_selection:
         let error = match SelectionServiceBuilder::new(
             config,
             WorkerType::Prefill,
-            WorkerSelectionPolicyRegistry::default(),
+            RouterPluginRegistry::default(),
         )
         .build()
         .await
@@ -524,7 +524,7 @@ worker_selection:
                 match SelectionServiceBuilder::new(
                     test_config(),
                     WorkerType::Aggregated,
-                    WorkerSelectionPolicyRegistry::default(),
+                    RouterPluginRegistry::default(),
                 )
                 .indexer_threads(1)
                 .replica_sync(port, Vec::new())
@@ -546,7 +546,7 @@ worker_selection:
         let failed = SelectionServiceBuilder::new(
             test_config(),
             WorkerType::Aggregated,
-            WorkerSelectionPolicyRegistry::default(),
+            RouterPluginRegistry::default(),
         )
         .indexer_threads(1)
         .replica_sync(port, vec!["invalid".to_string()])
@@ -601,7 +601,7 @@ worker_selection:
             SelectionServiceBuilder::new(
                 test_config(),
                 WorkerType::Aggregated,
-                WorkerSelectionPolicyRegistry::default(),
+                RouterPluginRegistry::default(),
             )
             .indexer_threads(1)
             .indexer_peers(vec![peer_url])

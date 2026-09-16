@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 
 use super::RequestClassifier;
-use super::config::KvRouterConfig;
+use crate::config::KvRouterConfig;
 
 /// Creates one classifier per routed model during router construction, not per request.
 pub type RequestClassifierFactory = Arc<dyn Fn() -> Box<dyn RequestClassifier> + Send + Sync>;
@@ -69,7 +69,7 @@ pub enum RequestClassifierRegistryError {
     #[error("could not load request_classifier from router_policy_config: {source}")]
     Config {
         #[source]
-        source: super::RouterPolicyConfigError,
+        source: crate::scheduling::RouterPolicyConfigError,
     },
     #[error("unknown request-classifier type {name:?}; linked classifier types: {available}")]
     UnknownType { name: String, available: String },
@@ -146,7 +146,7 @@ impl RequestClassifierRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scheduling::RequestClassifier;
+    use crate::plugins::request_classifier::RequestClassifier;
 
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]

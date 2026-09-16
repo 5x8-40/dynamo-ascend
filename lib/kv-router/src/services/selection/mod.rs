@@ -18,7 +18,8 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use crate::WorkerSelectionPolicyFactory;
+// TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
+pub use crate::plugins::worker_selection::WorkerSelectionPolicyFactory;
 pub use crate::plugins::{
     DYN_ROUTER_DECODE_POLICY, DYN_ROUTER_PREFILL_POLICY, DYN_ROUTER_WORKER_SELECTION_POLICY,
     RouterPluginRegistry, WorkerSelectionPolicyParameters, WorkerSelectionPolicyProvider,
