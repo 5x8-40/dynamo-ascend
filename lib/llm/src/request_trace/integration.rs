@@ -50,10 +50,18 @@ impl RequestEndTraceObserver {
         })
     }
 
-    pub(crate) fn tracker(&self) -> &RequestTracker {
+    pub(crate) fn output_tokens(&self) -> usize {
         self.request_tracker
             .as_deref()
-            .expect("request-end trace state always has a request tracker")
+            .map(RequestTracker::osl_tokens)
+            .map(|tokens| usize::try_from(tokens).unwrap_or(usize::MAX))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn record_finish(&self) {
+        if let Some(tracker) = self.request_tracker.as_deref() {
+            tracker.record_finish();
+        }
     }
 
     pub(crate) fn records_finish_reason_metadata(&self) -> bool {
@@ -100,9 +108,9 @@ impl RequestEndTraceObserver {
     pub(crate) fn observe_chat_finish_reason_from_backend(
         &self,
         choice_index: u32,
-        finish_reason: BackendFinishReason,
+        finish_reason: &BackendFinishReason,
     ) -> bool {
-        let Ok(finish_reason) = finish_reason.into_openai_chat_finish_reason() else {
+        let Ok(finish_reason) = finish_reason.to_openai_chat_finish_reason() else {
             return false;
         };
         if let Some(metadata) = self.finish_reason_metadata.as_ref() {
@@ -529,7 +537,6 @@ mod tests {
                 phase: Some("standalone_turn".to_string()),
                 strategy: Some("memento".to_string()),
             }),
-            kv_hints: None,
             input_trigger: Some(InputTrigger::ToolResult),
         });
         let mut context = Context::new(());
@@ -605,7 +612,6 @@ mod tests {
             parent_session_id: None,
             session_final: None,
             compaction: None,
-            kv_hints: None,
             input_trigger: None,
         });
         let tracker = Some(Arc::new(RequestTracker::new()));

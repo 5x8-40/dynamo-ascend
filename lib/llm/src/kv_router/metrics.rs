@@ -206,7 +206,7 @@ pub(crate) fn kv_publisher_metrics() -> Option<Arc<KvPublisherMetrics>> {
 }
 
 // ---------------------------------------------------------------------------
-// Direct-ZMQ KV ingress metrics
+// ZMQ KV ingress metrics
 // ---------------------------------------------------------------------------
 
 pub(crate) struct KvZmqIngressMetrics {
@@ -225,7 +225,7 @@ impl KvZmqIngressMetrics {
                 let sources = metrics
                     .create_intgaugevec(
                         "router_kv_zmq_ingress_sources",
-                        "Number of direct-ZMQ KV ingress sources by lifecycle state",
+                        "Number of ZMQ KV ingress sources by lifecycle state",
                         &["state"],
                         &[],
                     )
@@ -233,14 +233,14 @@ impl KvZmqIngressMetrics {
                 let batches_total = metrics
                     .create_intcounter(
                         "router_kv_zmq_ingress_batches_total",
-                        "Total direct-ZMQ KV ingress batches handed to WorkerQueryClient",
+                        "Total ZMQ KV ingress batches handed to WorkerQueryClient",
                         &[],
                     )
                     .expect("failed to create router_kv_zmq_ingress_batches_total counter");
                 let lifecycle_total = metrics
                     .create_intcountervec(
                         "router_kv_zmq_ingress_lifecycle_total",
-                        "Total direct-ZMQ KV ingress lifecycle transitions and errors",
+                        "Total ZMQ KV ingress lifecycle transitions and errors",
                         &["action"],
                         &[],
                     )
@@ -268,6 +268,17 @@ impl KvZmqIngressMetrics {
 
     pub(crate) fn increment_lifecycle(&self, action: &'static str) {
         self.lifecycle_total.with_label_values(&[action]).inc();
+    }
+
+    pub(crate) fn increment_lifecycle_by(&self, action: &'static str, value: u64) {
+        self.lifecycle_total
+            .with_label_values(&[action])
+            .inc_by(value);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lifecycle_count(&self, action: &'static str) -> u64 {
+        self.lifecycle_total.with_label_values(&[action]).get()
     }
 }
 
@@ -831,7 +842,10 @@ impl RoutingOverheadMetrics {
 /// decode pool). Component-scoped metrics let each local router emit metrics with
 /// distinct `dynamo_component` labels, so pools can be monitored and scaled
 /// independently.
+#[cfg_attr(test, derive(Clone))]
 pub struct RouterRequestMetrics {
+    /// Total requests admitted by the router scheduler.
+    pub requests_started_total: prometheus::IntCounter,
     pub requests_total: prometheus::IntCounter,
     pub time_to_first_token_seconds: prometheus::Histogram,
     pub inter_token_latency_seconds: prometheus::Histogram,
@@ -846,19 +860,11 @@ pub struct RouterRequestMetrics {
 }
 
 static ROUTER_REQUEST_METRICS: OnceLock<Arc<RouterRequestMetrics>> = OnceLock::new();
-static ROUTER_REQUESTS_STARTED_TOTAL: OnceLock<prometheus::IntCounter> = OnceLock::new();
 
 impl RouterRequestMetrics {
     /// Returns the registered metrics if `from_component()` was called earlier.
     pub fn get() -> Option<Arc<Self>> {
         ROUTER_REQUEST_METRICS.get().cloned()
-    }
-
-    /// Total requests admitted by the router scheduler.
-    pub fn requests_started_total(&self) -> &prometheus::IntCounter {
-        ROUTER_REQUESTS_STARTED_TOTAL
-            .get()
-            .expect("router request metrics must be initialized")
     }
 
     /// Create from a Component, memoized in a static OnceLock.
@@ -882,12 +888,6 @@ impl RouterRequestMetrics {
                         extra_labels,
                     )
                     .expect("failed to create router_requests_started_total");
-                assert!(
-                    ROUTER_REQUESTS_STARTED_TOTAL
-                        .set(requests_started_total)
-                        .is_ok(),
-                    "router_requests_started_total already initialized"
-                );
                 let requests_total = metrics
                     .create_intcounter(
                         &router_metric(frontend_service::REQUESTS_TOTAL),
@@ -979,6 +979,7 @@ impl RouterRequestMetrics {
                 non_max_overlap_selections_total.with_label_values(&[WORKER_TYPE_PREFILL]);
                 overlap_blocks_lost.with_label_values(&[WORKER_TYPE_PREFILL]);
                 Arc::new(Self {
+                    requests_started_total,
                     requests_total,
                     time_to_first_token_seconds,
                     inter_token_latency_seconds,
@@ -993,6 +994,17 @@ impl RouterRequestMetrics {
                 })
             })
             .clone()
+    }
+
+    /// Use fresh, unregistered lifecycle counters and retain all other metric handles.
+    #[cfg(test)]
+    pub(crate) fn with_isolated_counters_for_test(&self) -> Arc<Self> {
+        Arc::new(Self {
+            requests_started_total: prometheus::IntCounter::new("requests_started_total", "test")
+                .unwrap(),
+            requests_total: prometheus::IntCounter::new("requests_total", "test").unwrap(),
+            ..self.clone()
+        })
     }
 
     /// Record a selection that sacrificed KV cache overlap.

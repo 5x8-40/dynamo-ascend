@@ -127,10 +127,7 @@ impl SglangRequestTrace {
             if let Some(output) = response.data.as_ref() {
                 let usage = output.completion_usage.as_ref();
                 let output_tokens = usage.map_or_else(
-                    || {
-                        usize::try_from(stream_observer.tracker().osl_tokens())
-                            .unwrap_or(usize::MAX)
-                    },
+                    || stream_observer.output_tokens(),
                     |usage| usage.completion_tokens as usize,
                 );
                 let input_tokens = usage.map(|usage| usage.prompt_tokens as usize);
@@ -154,13 +151,13 @@ impl SglangRequestTrace {
                         .extend_from_slice(&output.token_ids);
                     tool_observation.terminal |= output.finish_reason.is_some();
                 }
-                if let Some(finish_reason) = output.finish_reason.clone()
+                if let Some(finish_reason) = output.finish_reason.as_ref()
                     && stream_observer.observe_chat_finish_reason_from_backend(
                         output.index.unwrap_or(0),
                         finish_reason,
                     )
                 {
-                    stream_observer.tracker().record_finish();
+                    stream_observer.record_finish();
                 }
             }
             response
