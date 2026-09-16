@@ -2034,7 +2034,8 @@ request_classifier:
         let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
         let factory: dynamo_kv_router::scheduling::RequestClassifierFactory = Arc::new({
             let instances = instances.clone();
-            move || {
+            move |context| {
+                assert_eq!(context.block_size(), 16);
                 Box::new(RejectingClassifier {
                     instance: instances.fetch_add(1, Ordering::Relaxed),
                     calls: 0,

@@ -1869,14 +1869,16 @@ async fn tracked_admission_without_lifecycle_bypasses_classifier() {
 }
 
 struct TokenContractClassifier {
-    classified: mpsc::UnboundedSender<usize>,
+    classified: mpsc::UnboundedSender<(usize, dynamo_kv_router::scheduling::RequestProgress)>,
     completed: mpsc::UnboundedSender<usize>,
 }
 
 #[async_trait::async_trait]
 impl RequestClassifier for TokenContractClassifier {
     fn classify(&mut self, request: ClassifyRequest) -> ClassifyFuture {
-        self.classified.send(request.input_tokens()).unwrap();
+        self.classified
+            .send((request.input_tokens(), request.progress().clone()))
+            .unwrap();
         Box::pin(async move { Ok(request) })
     }
 
@@ -1923,7 +1925,9 @@ async fn classifier_uses_scheduler_token_basis() {
     // routing tokens (`isl_tokens`, 8 here), not the multimodal expanded
     // prompt length (5), so a pass-through classifier cannot shift queue
     // bucketing, limits, or DRR cost for multimodal requests.
-    assert_eq!(classified_rx.recv().await, Some(8));
+    let (input_tokens, progress) = classified_rx.recv().await.unwrap();
+    assert_eq!(input_tokens, 8);
+    assert_eq!(progress.context_tokens(), 8);
 
     let mut guard = router
         .track_selection(
@@ -1947,6 +1951,8 @@ async fn classifier_uses_scheduler_token_basis() {
         ..Default::default()
     };
     guard.on_item(&Annotated::from_data(output)).await;
+    assert_eq!(progress.context_tokens(), 11);
+    assert!(completed_rx.try_recv().is_err());
     guard.finish().await;
     assert_eq!(completed_rx.recv().await, Some(11));
 

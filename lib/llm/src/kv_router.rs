@@ -28,9 +28,9 @@ use dynamo_kv_router::{
     },
     scheduling::{
         AdmissionAttempt, AttemptId, CacheHitEstimates, OverlapAnalysis, OverloadedWorkerProvider,
-        RequestClassifier, ScheduleMode, ScheduleRequest, TieredOverlapRefresher,
-        WorkerAvailabilityProvider, effective_prefill_tokens,
-        overlap::cache_hit_estimates_from_tiered_matches,
+        RequestClassifier, RequestClassifierContext, RequestClassifierWorker, ScheduleMode,
+        ScheduleRequest, TieredOverlapRefresher, WorkerAvailabilityProvider,
+        effective_prefill_tokens, overlap::cache_hit_estimates_from_tiered_matches,
     },
     selector::WorkerInputs,
 };
@@ -902,6 +902,27 @@ where
         }
         tracing::info!(model = %self.tracking_model_name, "installed linked request classifier");
         Ok(())
+    }
+
+    /// Cached per-rank capacity and registration state for this router's classifier.
+    pub fn request_classifier_context(&self) -> RequestClassifierContext {
+        let workers = self.workers_with_configs.clone();
+        RequestClassifierContext::new(self.block_size, move || {
+            workers
+                .borrow()
+                .iter()
+                .flat_map(|(&worker_id, config)| {
+                    let start = config.data_parallel_start_rank();
+                    let end = start.saturating_add(config.data_parallel_size());
+                    (start..end).map(move |rank| {
+                        RequestClassifierWorker::new(
+                            WorkerWithDpRank::new(worker_id, rank),
+                            config.total_kv_blocks(),
+                        )
+                    })
+                })
+                .collect()
+        })
     }
 
     pub(crate) fn begin_request_lifecycle(
@@ -2741,6 +2762,55 @@ mod tests {
             None,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn classifier_context_tracks_capacity_and_registered_ranks() {
+        let mut router = make_router_without_membership(Some(WorkerType::Decode))
+            .await
+            .unwrap();
+        let (tx, workers) = watch::channel(HashMap::from([
+            (
+                7,
+                ModelRuntimeConfig {
+                    total_kv_blocks: Some(100),
+                    data_parallel_start_rank: 2,
+                    data_parallel_size: 2,
+                    ..Default::default()
+                },
+            ),
+            (8, ModelRuntimeConfig::default()),
+        ]));
+        router.workers_with_configs = workers;
+        let context = router.request_classifier_context();
+        assert_eq!(context.block_size(), 16);
+        let mut snapshot = context.workers();
+        snapshot.sort_by_key(RequestClassifierWorker::worker);
+        assert_eq!(
+            snapshot,
+            vec![
+                RequestClassifierWorker::new(WorkerWithDpRank::new(7, 2), Some(100)),
+                RequestClassifierWorker::new(WorkerWithDpRank::new(7, 3), Some(100)),
+                RequestClassifierWorker::new(WorkerWithDpRank::new(8, 0), None),
+            ]
+        );
+        tx.send(HashMap::from([(
+            8,
+            ModelRuntimeConfig {
+                total_kv_blocks: Some(200),
+                ..Default::default()
+            },
+        )]))
+        .unwrap();
+        assert_eq!(
+            context.workers(),
+            vec![RequestClassifierWorker::new(
+                WorkerWithDpRank::new(8, 0),
+                Some(200)
+            ),]
+        );
+        tx.send(HashMap::new()).unwrap();
+        assert!(context.workers().is_empty());
     }
 
     #[tokio::test]

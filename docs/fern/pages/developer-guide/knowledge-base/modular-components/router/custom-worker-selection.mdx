@@ -324,7 +324,7 @@ Add one focused test for each policy decision and one registration test for ever
 
 **Experimental.** Request classifiers use the same statically linked catalog as worker filters, scorers, and pickers. Keep the catalog's single `register` function and call `register_request_classifier` for each classifier type. `RouterPluginRegistry` also accepts the existing worker-selection providers; `WorkerSelectionPolicyRegistry` remains an alias, so existing catalogs compile unchanged.
 
-Implement `RequestClassifier` in your policy crate. Its provider validates `RequestClassifierParameters` at startup and returns a `RequestClassifierFactory`: a closure that creates a fresh `Box<dyn RequestClassifier>` for each routed model. Register that provider alongside your worker-selection providers:
+Implement `RequestClassifier` in your policy crate. Its provider validates `RequestClassifierParameters` at startup and returns a `RequestClassifierFactory`: a closure that receives `RequestClassifierContext` and creates a fresh `Box<dyn RequestClassifier>` for each routed model. The shared router builder supplies the cached capacity context for both HTTP discovery and Python `KvRouter.generate`. Register that provider alongside your worker-selection providers:
 
 ```rust
 use std::sync::Arc;
@@ -571,6 +571,16 @@ Standalone EPP supplies `WorkerType::Aggregated` because it selects from one ful
 
 </Tab>
 </Tabs>
+
+## Request Classifier Signals and Placement
+
+Rust request classifiers can defer admission while retaining independently pollable futures. `KvRouter::request_classifier_context()` supplies the router's cached worker view when constructing a classifier:
+
+- `block_size()` is the number of tokens per KV block. Each entry in `workers()` identifies a registered worker/rank and its advertised `total_kv_blocks()`, or `None` if capacity was not advertised. Their product is total capacity, not currently free space. The view follows existing discovery updates and does not probe worker health.
+- `ClassifyRequest::progress()` returns a read-only context high-water mark, initialized from `input_tokens()` and raised by host observations of prompt plus generated tokens. Clones share a monotonic counter across migration retries. A new request lifecycle gets a fresh counter, even if it reuses a request ID. This measures logical tokens, not physical KV occupancy.
+- `set_worker_selection_target(worker)` replaces the request's soft affinity preference; `clear_worker_selection_target()` removes that preference. Hard pins and caller eligibility constraints remain authoritative. A custom picker can fall back when the preferred worker is ineligible. The classifier's `Sent` event reports the worker actually used.
+
+Holding a classification future pauses admission before dispatch; it does not interrupt an already running generation. Worker filters, scorers, and pickers continue to own placement decisions within Dynamo's eligibility rules.
 
 ## Policy Contract
 

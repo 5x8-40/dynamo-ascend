@@ -67,7 +67,7 @@ impl<Sel> RouterPluginBuilder<Sel> {
         Sel: WorkerSelector<ModelRuntimeConfig> + Send + 'static,
     {
         if let Some(factory) = self.plugins.request_classifier() {
-            router.install_request_classifier(factory())?;
+            router.install_request_classifier(factory(router.request_classifier_context()))?;
         }
         Ok(())
     }

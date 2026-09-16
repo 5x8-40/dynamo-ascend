@@ -21,11 +21,13 @@ use crate::protocols::WorkerWithDpRank;
 static NEXT_CLASSIFICATION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_LIFECYCLE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
-use crate::plugins::request_classifier::ClassificationOverrides;
+pub(crate) use crate::plugins::request_classifier::ClassificationOverrides;
+use crate::plugins::request_classifier::{RequestProgress, RequestProgressUpdater};
 
 // TODO(v1.7): Remove these compatibility re-exports; use crate::plugins instead.
 pub use crate::plugins::request_classifier::{
     AbortCause, ClassifierError, ClassifyEvent, ClassifyFuture, ClassifyRequest, RequestClassifier,
+    RequestClassifierContext, RequestClassifierWorker,
 };
 
 /// One live lifecycle's bookkeeping. `generation` fences `classify_with`
@@ -35,6 +37,8 @@ pub use crate::plugins::request_classifier::{
 struct LiveRequest {
     generation: u64,
     overrides: Option<ClassificationOverrides>,
+    progress: RequestProgress,
+    progress_updater: RequestProgressUpdater,
 }
 
 /// Terminal events enqueued for delivery but not yet delivered, per request
@@ -170,6 +174,9 @@ impl RequestClassifierRuntime {
             let live = live_requests.get(request_id).ok_or_else(|| {
                 KvSchedulerError::ClassificationLifecycleEnded(request_id.to_owned())
             })?;
+            live.progress_updater
+                .update_context_tokens(request.input_tokens());
+            request.progress = live.progress.clone();
             if let Some(overrides) = live.overrides.clone() {
                 request.overrides = overrides;
                 return Ok(request);
@@ -245,24 +252,29 @@ impl RequestClassifierRuntime {
         if self.shutdown.is_cancelled() {
             return Err(KvSchedulerError::SubscriberShutdown);
         }
-        match self.live_requests.lock().entry(request_id.to_owned()) {
+        let progress_updater = match self.live_requests.lock().entry(request_id.to_owned()) {
             std::collections::hash_map::Entry::Occupied(_) => {
                 return Err(KvSchedulerError::DuplicateClassificationRequestId(
                     request_id.to_owned(),
                 ));
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
+                let (progress, progress_updater) = RequestProgress::new(0);
                 entry.insert(LiveRequest {
                     generation: NEXT_LIFECYCLE_GENERATION.fetch_add(1, Ordering::Relaxed),
                     overrides: None,
+                    progress,
+                    progress_updater: progress_updater.clone(),
                 });
+                progress_updater
             }
-        }
+        };
         Ok(RequestLifecycle {
             runtime: Arc::clone(self),
             request_id: request_id.to_owned(),
             worker: None,
             context_tokens: None,
+            progress_updater,
             phase: LifecyclePhase::Registered,
         })
     }
@@ -356,6 +368,7 @@ pub struct RequestLifecycle {
     request_id: String,
     worker: Option<WorkerWithDpRank>,
     context_tokens: Option<usize>,
+    progress_updater: RequestProgressUpdater,
     phase: LifecyclePhase,
 }
 
@@ -410,20 +423,28 @@ impl RequestLifecycle {
     /// Order matters: [`Self::observe_context_tokens`] floors the same total,
     /// so report a context before its outputs or the floor erases them.
     pub fn observe_output_tokens(&mut self, output_tokens: usize) {
-        self.context_tokens = Some(
-            self.context_tokens
-                .unwrap_or_default()
-                .saturating_add(output_tokens),
-        );
+        if self.phase == LifecyclePhase::Terminal {
+            return;
+        }
+        let context_tokens = self
+            .context_tokens
+            .unwrap_or_default()
+            .saturating_add(output_tokens);
+        self.context_tokens = Some(context_tokens);
+        self.progress_updater.update_context_tokens(context_tokens);
     }
 
     /// Raise the context total to at least `context_tokens` (an
     /// engine-reported absolute count).
     pub fn observe_context_tokens(&mut self, context_tokens: usize) {
+        if self.phase == LifecyclePhase::Terminal {
+            return;
+        }
         self.context_tokens = Some(
             self.context_tokens
                 .map_or(context_tokens, |current| current.max(context_tokens)),
         );
+        self.progress_updater.update_context_tokens(context_tokens);
     }
 
     pub fn prepare_retry(&mut self) {
@@ -669,7 +690,11 @@ mod tests {
         assert_eq!(result.request_id(), Some("request-1"));
         assert_eq!(result.policy_class(), Some("latency"));
         assert_eq!(result.scheduling_cost_tokens(), 96);
-        assert_eq!(result.into_queue_inputs(), (None, None, None));
+        let inputs = result.into_queue_inputs();
+        assert!(inputs.policy_class.is_none());
+        assert!(inputs.due_at.is_none());
+        assert!(inputs.scheduling_cost_tokens.is_none());
+        assert!(inputs.worker_selection_target.is_none());
     }
 
     struct EventReleasedClassifier {
@@ -809,6 +834,7 @@ mod tests {
         fn classify(&mut self, mut request: ClassifyRequest) -> ClassifyFuture {
             self.calls.fetch_add(1, Ordering::Relaxed);
             request.set_scheduling_cost_tokens(7);
+            request.set_worker_selection_target(WorkerWithDpRank::new(9, 1));
             Box::pin(async move { Ok(request) })
         }
     }
@@ -828,6 +854,11 @@ mod tests {
             .classify_with(ClassifyRequest::new(10, 10).with_request_id("request-1"))
             .await
             .unwrap();
+        assert_eq!(first.progress().context_tokens(), 10);
+        lifecycle.observe_context_tokens(10);
+        lifecycle.observe_output_tokens(15);
+        assert_eq!(first.progress().context_tokens(), 25);
+        lifecycle.prepare_retry();
         let retry = runtime
             .classify_with(ClassifyRequest::new(20, 20).with_request_id("request-1"))
             .await
@@ -837,7 +868,29 @@ mod tests {
         assert_eq!(first.input_tokens(), 10);
         assert_eq!(retry.input_tokens(), 20);
         assert_eq!(retry.scheduling_cost_tokens(), 7);
+        assert_eq!(retry.progress().context_tokens(), 25);
+        assert_eq!(
+            retry.overrides.worker_selection_target,
+            Some(Some(WorkerWithDpRank::new(9, 1).into()))
+        );
+        lifecycle.observe_context_tokens(50);
+        lifecycle.observe_context_tokens(30);
+        assert_eq!(first.progress().context_tokens(), 50);
+        assert_eq!(retry.progress().context_tokens(), 50);
         lifecycle.abort(None);
+
+        let mut next_lifecycle = runtime.begin_request("request-1").unwrap();
+        let next = runtime
+            .classify_with(ClassifyRequest::new(3, 0).with_request_id("request-1"))
+            .await
+            .unwrap();
+        next_lifecycle.observe_context_tokens(3);
+        next_lifecycle.observe_output_tokens(4);
+        lifecycle.observe_output_tokens(100);
+        assert_eq!(next.progress().context_tokens(), 7);
+        assert_eq!(first.progress().context_tokens(), 50);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        next_lifecycle.abort(None);
     }
 
     // `LocalScheduler::classify_request` routes ids with no registered

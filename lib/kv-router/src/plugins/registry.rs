@@ -414,7 +414,7 @@ worker_selection:
                     let provider_calls = provider_calls.clone();
                     move |_| {
                         provider_calls.fetch_add(1, Ordering::Relaxed);
-                        Ok(Arc::new(|| Box::new(PassThrough)))
+                        Ok(Arc::new(|_| Box::new(PassThrough)))
                     }
                 }),
             )
@@ -429,8 +429,12 @@ worker_selection:
         let plugins = registry.resolve_plugins(&config).unwrap();
         assert!(!plugins.is_empty());
         assert!(plugins.worker_selection().is_none());
-        let _first = plugins.request_classifier().unwrap()();
-        let _second = plugins.clone().request_classifier().unwrap()();
+        let _first = plugins.request_classifier().unwrap()(
+            crate::plugins::request_classifier::RequestClassifierContext::new(16, Vec::new),
+        );
+        let _second = plugins.clone().request_classifier().unwrap()(
+            crate::plugins::request_classifier::RequestClassifierContext::new(16, Vec::new),
+        );
         assert_eq!(provider_calls.load(Ordering::Relaxed), 1);
         assert!(
             RouterPluginRegistry::default()

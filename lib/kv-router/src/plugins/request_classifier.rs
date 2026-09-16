@@ -4,7 +4,11 @@
 //! Public request-classifier contract and startup configuration.
 
 mod config;
+mod inputs;
+mod progress;
 mod registry;
+pub use inputs::{RequestClassifierContext, RequestClassifierWorker};
+pub use progress::{RequestProgress, RequestProgressUpdater};
 
 pub(crate) use config::RawRequestClassifierConfig;
 pub use config::RequestClassifierConfig;
@@ -22,7 +26,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::time::Instant;
 
-use crate::protocols::WorkerWithDpRank;
+use crate::protocols::{WorkerAffinityTarget, WorkerWithDpRank};
 use crate::scheduling::{SessionContext, policy_queue::QueueSnapshot};
 
 #[derive(Debug)]
@@ -34,14 +38,16 @@ pub struct ClassifyRequest {
     ingress_at: Instant,
     input_tokens: usize,
     initial_cached_tokens: usize,
+    pub(crate) progress: RequestProgress,
     session_context: Option<SessionContext>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ClassificationOverrides {
-    policy_class: Option<String>,
-    due_at: Option<Instant>,
-    scheduling_cost_tokens: Option<usize>,
+    pub(crate) policy_class: Option<String>,
+    pub(crate) due_at: Option<Instant>,
+    pub(crate) scheduling_cost_tokens: Option<usize>,
+    pub(crate) worker_selection_target: Option<Option<WorkerAffinityTarget>>,
 }
 
 impl ClassifyRequest {
@@ -63,6 +69,7 @@ impl ClassifyRequest {
             ingress_at,
             input_tokens,
             initial_cached_tokens,
+            progress: RequestProgress::new(input_tokens).0,
             session_context: None,
         }
     }
@@ -101,6 +108,13 @@ impl ClassifyRequest {
         self.input_tokens
     }
 
+    /// Live context high-water mark, initialized from `input_tokens()` and raised
+    /// by host observations of prompt plus generated tokens. This is not physical
+    /// KV occupancy. The host alone updates this request's counter.
+    pub fn progress(&self) -> &RequestProgress {
+        &self.progress
+    }
+
     /// Return the original router ingress time on the monotonic clock.
     pub fn ingress_at(&self) -> Instant {
         self.ingress_at
@@ -124,6 +138,18 @@ impl ClassifyRequest {
         self.overrides.scheduling_cost_tokens = Some(scheduling_cost_tokens);
     }
 
+    /// Prefer a worker/rank for this request, replacing its soft affinity target.
+    /// Hard pins and caller eligibility constraints remain authoritative. A custom
+    /// selector can fall back if the target is ineligible; `Sent` reports the result.
+    pub fn set_worker_selection_target(&mut self, worker: WorkerWithDpRank) {
+        self.overrides.worker_selection_target = Some(Some(worker.into()));
+    }
+
+    /// Clear this request's soft affinity preference without changing hard pins.
+    pub fn clear_worker_selection_target(&mut self) {
+        self.overrides.worker_selection_target = Some(None);
+    }
+
     pub fn session_context(&self) -> Option<&SessionContext> {
         self.session_context.as_ref()
     }
@@ -131,12 +157,8 @@ impl ClassifyRequest {
     /// Only the explicit overrides feed the queue: cache eligibility is
     /// recomputed from the current workers at enqueue, because worker state
     /// may have changed while the classification was pending.
-    pub(crate) fn into_queue_inputs(self) -> (Option<String>, Option<Instant>, Option<usize>) {
-        (
-            self.overrides.policy_class,
-            self.overrides.due_at,
-            self.overrides.scheduling_cost_tokens,
-        )
+    pub(crate) fn into_queue_inputs(self) -> ClassificationOverrides {
+        self.overrides
     }
 }
 
