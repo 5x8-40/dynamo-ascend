@@ -1178,11 +1178,12 @@ async fn router_with_worker_configs(
     session_affinity_ttl: Option<Duration>,
     workers: HashMap<u64, ModelRuntimeConfig>,
 ) -> (RoutingHost, Runtime) {
-    router_with_worker_configs_and_classifier(
+    // Keep the large construction future off debug test stacks.
+    Box::pin(router_with_worker_configs_and_classifier(
         session_affinity_ttl,
         workers,
         None::<RecordingClassifier>,
-    )
+    ))
     .await
 }
 
