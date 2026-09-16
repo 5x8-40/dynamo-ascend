@@ -41,6 +41,10 @@ pub struct HttpFrontend {
 
 impl HttpFrontend {
     /// Install a resolved plugin bundle for all routers created by this frontend.
+    ///
+    /// This replaces all previously configured plugins. Call this before
+    /// [`Self::worker_selection_policy_factory`] or [`Self::request_classifier_factory`]
+    /// to retain overrides made by those setters.
     pub fn plugins(mut self, plugins: RouterPlugins) -> Self {
         self.plugins = plugins;
         self
