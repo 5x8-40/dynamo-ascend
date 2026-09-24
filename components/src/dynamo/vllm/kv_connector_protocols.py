@@ -135,7 +135,12 @@ class LMCacheMPConnectorProtocol(KvConnectorProtocol):
 KV_CONNECTOR_PROTOCOLS: Dict[str, Type[KvConnectorProtocol]] = {
     "NixlConnector": NixlConnectorProtocol,
     "NeuronNixlConnector": NixlConnectorProtocol,
+    # Upstream GPU Mooncake is push-based (transfer_id + bootstrap).
     "MooncakeConnector": MooncakeConnectorProtocol,
+    # Ascend vllm-ascend MooncakeConnectorV1 is pull-based (remote_host/
+    # remote_port/remote_block_ids from prefill response), same wire shape
+    # as NIXL — not the upstream Mooncake bootstrap protocol.
+    "MooncakeConnectorV1": NixlConnectorProtocol,
     "LMCacheMPConnector": LMCacheMPConnectorProtocol,
 }
 
